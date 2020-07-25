@@ -99,7 +99,6 @@ int BpmSpdAddWidget::handle_event(const SDL_Event &ev)
 
   add_incbtn.check_event(ev);
   add_decbtn.check_event(ev);
-  return 0;
 }
 
 //void BpmSpdAddWidget::one_time_draw(SDL_Surface *screen/*=::render->screen*/)
@@ -129,7 +128,6 @@ int BpmSpdAddWidget::incbpm(void *bsaw)
   BpmSpdAddWidget *b = (BpmSpdAddWidget *)bsaw;
   b->tracker->song.settings.inc_bpm();
   b->updatebpm();
-  return 0;
 }
 
 int BpmSpdAddWidget::decbpm(void *bsaw)
@@ -137,7 +135,6 @@ int BpmSpdAddWidget::decbpm(void *bsaw)
   BpmSpdAddWidget *b = (BpmSpdAddWidget *)bsaw;
   b->tracker->song.settings.dec_bpm();
   b->updatebpm();
-  return 0;
 }
 
 int BpmSpdAddWidget::incspd(void *bsaw)
@@ -145,7 +142,6 @@ int BpmSpdAddWidget::incspd(void *bsaw)
   BpmSpdAddWidget *b = (BpmSpdAddWidget *)bsaw;
   b->tracker->song.settings.inc_spd();
   b->updatespd();
-  return 0;
 }
 
 int BpmSpdAddWidget::decspd(void *bsaw)
@@ -153,19 +149,16 @@ int BpmSpdAddWidget::decspd(void *bsaw)
   BpmSpdAddWidget *b = (BpmSpdAddWidget *)bsaw;
   b->tracker->song.settings.dec_spd();
   b->updatespd();
-  return 0;
 }
 
 int BpmSpdAddWidget::incadd(void *bsaw)
 {
   BpmSpdAddWidget *b = (BpmSpdAddWidget *)bsaw;
   b->pep->inc_addval();
-  return 0;
 }
 
 int BpmSpdAddWidget::decadd(void *bsaw)
 {
   BpmSpdAddWidget *b = (BpmSpdAddWidget *)bsaw;
   b->pep->dec_addval();
-  return 0;
 }

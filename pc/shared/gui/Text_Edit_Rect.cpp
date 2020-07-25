@@ -103,7 +103,6 @@ static inline int check_dblclick(const SDL_Event &ev, Text_Edit_Rect *ter)
       break;
     default:break;
   }
-  return 0;
 }
 
 void Text_Edit_Rect::stop_editing(Text_Edit_Rect *ter/*=cur_editing_ter*/)
@@ -245,7 +244,6 @@ int Text_Edit_Rect::clicked_callback(void *data)
     SDL_StopTextInput();
     Text_Edit_Rect::cursor.stop_timer();
   }
-  return 0;
 }
 
 void Text_Edit_Rect::one_time_draw(SDL_Surface *screen)

@@ -26,7 +26,6 @@ Spc_Export_Window::~Spc_Export_Window()
 int Spc_Export_Window::init()
 {
   // Prepare SPC memory area for export
-  return 0;
 }
 
 void Spc_Export_Window::show()
@@ -152,7 +151,7 @@ int Spc_Export_Window::receive_event(SDL_Event &ev)
     case SDL_MOUSEBUTTONDOWN:
     {
       if (export_button.check_mouse_and_execute(mouse::prescaled_x, mouse::prescaled_y))
-        return 0;
+        return;
       //if (r) return r;
     } break;
 

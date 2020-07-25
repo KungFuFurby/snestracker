@@ -175,7 +175,7 @@ int Main_Window::receive_event(SDL_Event &ev)
     {
       default:break;
     }
-    return 0;
+    return;
   }
   check_quit(ev);
 
@@ -891,7 +891,6 @@ int Main_Window::receive_event(SDL_Event &ev)
       default:
       break;
   }
-  return 0;
 }
 
 void Main_Window::run()
