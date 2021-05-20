@@ -15,10 +15,11 @@
 #include "globals.h"
 #include "shared/gui/Text_Edit_Rect.h"
 #include "Samples.h"
+#include "Sample_Panel.h"
 #include "Instruments.h"
 #include "Pattern.h"
-#include "PatLenWidget.h"
 #include "BpmSpdAddWidget.h"
+#include "Instrument_Panel.h"
 #include "InstrumentEditor.h"
 #include "SampleEditor.h"
 #include "SongSettings.h"
@@ -29,6 +30,7 @@ struct Main_Window : public Experience
 {
   char tmpbuf[100];
 
+  Text song_label;
   Text song_title_label;
   Text_Edit_Rect song_title;
 
@@ -89,7 +91,6 @@ struct Main_Window : public Experience
 	Sample_Panel samplepanel;
   Instrument_Panel instrpanel;
   PatSeqPanel patseqpanel;
-	PatLenWidget plwidget;
   PatternEditorPanel pateditpanel;
   BpmSpdAddWidget bsawidget;
 
@@ -113,4 +114,11 @@ struct Main_Window : public Experience
   Button songsettings_btn;
   static int toggle_songsettings(void *m);
 ///////////// END AUX PANELS /////////////////////
+
+// v0.2.1
+  SDL_Rect patseq_rect_bg;
+  SDL_Rect song_rect_bg;
+  SDL_Rect instr_rect_bg; // define the background color fill area for the entire  panel
+  SDL_Rect sample_rect_bg;
+  SDL_Rect patedit_rect_bg;
 };

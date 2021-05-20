@@ -1,3 +1,4 @@
+#include "platform.h"
 #include "Pattern.h"
 #include "PanelCommon.h"
 #include "sdl_userevents.h"
@@ -609,13 +610,26 @@ size_t PatternSequencerChunkLoader::save(SDL_RWops *file)
 const int PatSeqPanel::VISIBLE_ROWS;
 
 PatSeqPanel::PatSeqPanel(PatternSequencer *patseq) :
+  title("Pat. Sequencer"),
   clonebtn("Clone", PatSeqPanel::clone, this),
-  seqbtn("Seq", PatSeqPanel::seq, this),
-  clearbtn("Clr", PatSeqPanel::clear, this),
+  seqbtn("New", PatSeqPanel::seq, this),
+  clearbtn("Del", PatSeqPanel::clear, this),
+  insbtn("Ins", PatSeqPanel::insertPat, this),
+  zapbtn("Clr", PatSeqPanel::zapPat, this),
   incpatbtn("+", PatSeqPanel::incpat, this),
   decpatbtn("-", PatSeqPanel::decpat, this),
+  movePatUpbtn(FONT_CODE_V_TRI_STR, PatSeqPanel::movePatUp, this),
+  movePatDownbtn(FONT_CODE_V_TRI_STR, PatSeqPanel::movePatDown, this),
 
-  patseq(patseq)
+  patseq(patseq),
+  lastTimeScrolled(0),
+
+  // PatLenWidget stuff
+  patlen_cbuf("$040"),
+	patlen_title("Pat Len:"),
+	patlen_valtext(patlen_cbuf),
+	patlen_incbtn("+", inc_patlen, this, true),
+	patlen_decbtn("-", dec_patlen, this, true)
 {
 }
 
@@ -634,24 +648,44 @@ void PatSeqPanel::set_coords(int x, int y)
                      assignments are spread throughout this function rather than all being in one place,
                      due to the nature of the coordinates being manipulated to create the locations
                      of all pspanel entities */
+  rect.y = y;
+
 
   //x += title.rect.w + (2*CHAR_WIDTH);
+  title.rect.x = x;
+  title.rect.y = y;
+
+  y += (CHAR_HEIGHT * 2) + 2;
+
+  
+
   clonebtn.rect.x = x;
   clonebtn.rect.y = y;
-
   x += clonebtn.rect.w + (CHAR_WIDTH) + (CHAR_WIDTH/2);
+  
   seqbtn.rect.x = x;
   seqbtn.rect.y = y;
-
   x += seqbtn.rect.w + (CHAR_WIDTH) + (CHAR_WIDTH/2);
+
+  insbtn.rect.x = x;
+  insbtn.rect.y = y;
+
+  y += (CHAR_HEIGHT * 2);
+
+  rect_patTable.x = rect.x;
+  rect_patTable.y = y;
+  rect_patTable.w = (5 * CHAR_WIDTH) + 2;
+  rect_patTable.h = (CHAR_HEIGHT * (VISIBLE_ROWS)) + 1;
+
+
+  y += 2; //(CHAR_HEIGHT / 2);
+
   clearbtn.rect.x = x;
   clearbtn.rect.y = y;
 
-  y += CHAR_HEIGHT + (CHAR_HEIGHT/2);
-  y += 2;
-  rect.y = y;
-
-  y += 2; //(CHAR_HEIGHT / 2);
+  int zap_y = y + CHAR_HEIGHT + (CHAR_HEIGHT / 2) + 4;
+  zapbtn.rect.x = x;
+  zapbtn.rect.y = zap_y;
 
   /* This init was postponed until now to avoid having to iterate through
    * all instruments multiple times */
@@ -678,19 +712,53 @@ void PatSeqPanel::set_coords(int x, int y)
     names[i].rect.w = 2 * CHAR_WIDTH;
   }
 
-  rect.w = (5 * CHAR_WIDTH) + 2;
-  rect.h = (CHAR_HEIGHT * (VISIBLE_ROWS)) + 1;
-
   // put the inc/dec pat buttons to the right of the rect.
-  incpatbtn.rect.x = rect.x + rect.w + (CHAR_WIDTH) + (CHAR_WIDTH/2);
-  incpatbtn.rect.y = rect.y + 4;
-  decpatbtn.rect.x = incpatbtn.rect.x + incpatbtn.rect.w + 5;
-  decpatbtn.rect.y = incpatbtn.rect.y;// + CHAR_HEIGHT;
+  decpatbtn.rect.x = rect_patTable.x + rect_patTable.w + (CHAR_WIDTH) + (CHAR_WIDTH/2);
+  decpatbtn.rect.y = rect_patTable.y + 2;
+  incpatbtn.rect.x = decpatbtn.rect.x + incpatbtn.rect.w + 5;
+  incpatbtn.rect.y = decpatbtn.rect.y;// + CHAR_HEIGHT;
+
+  movePatUpbtn.rect.x = decpatbtn.rect.x;
+  movePatUpbtn.rect.y = decpatbtn.rect.y + (CHAR_HEIGHT * 2);
+  movePatDownbtn.rect.x = movePatUpbtn.rect.x;
+  movePatDownbtn.rect.y = movePatUpbtn.rect.y + CHAR_HEIGHT + 5;
+
+// PATTERN LENGTH PORTION:
+  patlen_title.rect.x = xx;
+	patlen_title.rect.y = rect_patTable.y + rect_patTable.h + (CHAR_HEIGHT * 2) + 1;// + (CHAR_HEIGHT / 2);
+	patlen_valtext.rect.x = patlen_title.rect.x + ((strlen(patlen_title.str) + 1) * CHAR_WIDTH);
+	patlen_valtext.rect.y = patlen_title.rect.y;
+	patlen_decbtn.rect.x  = patlen_valtext.rect.x + (5 * CHAR_WIDTH);
+	patlen_decbtn.rect.y = patlen_title.rect.y;
+	patlen_incbtn.rect.x = patlen_decbtn.rect.x + CHAR_WIDTH + 5;
+	patlen_incbtn.rect.y = patlen_title.rect.y;
+// END PATLEN PORTION
+
+
+  rect.w = (patlen_incbtn.rect.x + patlen_incbtn.rect.w) - rect.x;
+  rect.h = (patlen_title.rect.y + patlen_title.rect.h) - rect.y;
+}
+
+static void apuSetPattern(int currow)
+{
+  if (::tracker->playback)
+  {
+    // send command to set the pattern
+    ::player->spc_emu()->write_port(2, currow);
+    ::player->spc_emu()->write_port(1, SPCCMD_SETPATTERN);
+    while (::player->spc_emu()->read_port(1) != SPCCMD_SETPATTERN)
+      SDL_Delay(1);
+    ::player->spc_emu()->write_port(1, SPCCMD_NOP);
+  }
 }
 
 int PatSeqPanel::event_handler(const SDL_Event &ev)
 {
-  mousewheel_rows_event_handler(ev, &rows_scrolled, VISIBLE_ROWS, patseq->num_entries, &rect);
+  if (mousewheel_rows_event_handler(ev, &rows_scrolled, VISIBLE_ROWS, patseq->num_entries, &rect))
+  {
+    // mark the last time you've scrolled
+    lastTimeScrolled = SDL_GetTicks();
+  }
 
   /* If the user clicks within a certain row rect. A row rect is comprised
    * of the index region (including padding), the spacer, and the
@@ -721,7 +789,9 @@ int PatSeqPanel::event_handler(const SDL_Event &ev)
                   if ((currow - rows_scrolled) != i)
                   {
                     //SDL_FillRect(::render->screen, &highlight_r, Colors::transparent);
-                    currow = rows_scrolled + i;
+                    set_currow(rows_scrolled + i);
+
+                    apuSetPattern(currow);
                   }
                   return 1;
                 }
@@ -753,12 +823,14 @@ int PatSeqPanel::event_handler(const SDL_Event &ev)
             if (MODONLY(mod, CMD_CTRL_KEY))
             {
               dec_currow();
+              apuSetPattern(currow);
             }
             break;
           case SDLK_DOWN:
             if (MODONLY(mod, CMD_CTRL_KEY))
             {
               inc_currow();
+              apuSetPattern(currow);
             }
             break;
           case SDLK_LEFT:
@@ -802,6 +874,20 @@ int PatSeqPanel::event_handler(const SDL_Event &ev)
           if (MODONLY(mod, CMD_CTRL_KEY))
             clone(this);
           break;
+          // Mute / Solo kbd shortcuts
+          case SDLK_1:
+          case SDLK_2:
+          case SDLK_3:
+          case SDLK_4:
+          case SDLK_5:
+          case SDLK_6:
+          case SDLK_7:
+          case SDLK_8:
+            if (MODONLY(mod, KMOD_ALT))
+              Voice_Control::toggle_mute(scancode - SDLK_1 + 1);
+            else if (MODONLY(mod, CMD_CTRL_KEY))
+              Voice_Control::toggle_solo(scancode - SDLK_1 + 1);
+          break;
 
           default:break;
         }
@@ -810,27 +896,56 @@ int PatSeqPanel::event_handler(const SDL_Event &ev)
   clonebtn.check_event(ev);
   seqbtn.check_event(ev);
   clearbtn.check_event(ev);
+  insbtn.check_event(ev);
+  zapbtn.check_event(ev);
   incpatbtn.check_event(ev);
   decpatbtn.check_event(ev);
+  movePatUpbtn.check_event(ev);
+  movePatDownbtn.check_event(ev);
+
+  // PatLenWidget stuff
+	patlen_incbtn.check_event(ev);
+	patlen_decbtn.check_event(ev);
+
 }
 
 void PatSeqPanel::one_time_draw(SDL_Surface *screen/*=::render->screen*/)
 {
-  Utility::DrawRect(&rect, 1);
+  Utility::DrawRect(&rect_patTable, 1);
 }
 
 void PatSeqPanel::draw(SDL_Surface *screen/*=::render->screen*/)
 {
   one_time_draw();
-  /* First, draw the "Instruments" strings and top buttons */
-  //title.draw(screen);
+
+  // draw the title with the same background color as the bg rect
+  title.draw(screen, Colors::Interface::color[Colors::Interface::Type::text_fg],
+             true, false, false, Colors::Interface::color[Colors::Interface::Type::patseqpanelBG]);
+
   clonebtn.draw(screen);
   seqbtn.draw(screen);
   clearbtn.draw(screen);
+  insbtn.draw(screen);
+  zapbtn.draw(screen);
   incpatbtn.draw(screen);
   decpatbtn.draw(screen);
+  movePatUpbtn.draw(screen);
+  movePatDownbtn.draw(screen, true);
 
-  SDL_Rect r = {rect.x + 1, rect.y + 1, rect.w - 1, rect.h - 1};
+  // PatLenWidget Stuff
+  update_patlen();
+  // Need to draw this title with the same background color as the rect_bg
+  patlen_title.draw(screen, Colors::Interface::color[Colors::Interface::Type::text_fg],
+             true, false, false, Colors::Interface::color[Colors::Interface::Type::patseqpanelBG]);
+
+	patlen_valtext.draw(screen, Colors::Interface::color[Colors::Interface::Type::text_fg],
+             true, false, false, Colors::Interface::color[Colors::Interface::Type::patseqpanelBG]);
+
+	patlen_incbtn.draw(screen);
+	patlen_decbtn.draw(screen);
+  // End PatLenWidget Stuff
+
+  SDL_Rect r = {rect_patTable.x + 1, rect_patTable.y + 1, rect_patTable.w - 1, rect_patTable.h - 1};
   SDL_FillRect(screen, &r, Colors::transparent);
 
   /* This should really be put in init and event code, to decrease
@@ -871,13 +986,106 @@ void PatSeqPanel::draw(SDL_Surface *screen/*=::render->screen*/)
   }
 }
 
+int PatSeqPanel::movePatUp(void *pspanel)
+{
+  fprintf(stderr, "PatSeqPanel::movePatUP()\n");
+  PatSeqPanel *psp = (PatSeqPanel *)pspanel;
+  PatternSequencer *patseq = psp->patseq;
+
+  if ( psp->currow == 0 )
+    return 1;
+  
+  auto copy = patseq->sequence[psp->currow - 1];
+  patseq->sequence[psp->currow - 1] = patseq->sequence[psp->currow];
+  patseq->sequence[psp->currow] = copy;
+
+  psp->set_currow ( psp->currow - 1 );
+  *patseq->metadata.changed = true;
+
+  return 0;
+}
+
+int PatSeqPanel::movePatDown(void *pspanel)
+{
+  fprintf(stderr, "PatSeqPanel::movePatDOWN()\n");
+  PatSeqPanel *psp = (PatSeqPanel *)pspanel;
+  PatternSequencer *patseq = psp->patseq;
+
+  if ( psp->currow > (patseq->num_entries - 2) )
+    return 1;
+  
+  auto copy = patseq->sequence[psp->currow + 1];
+  patseq->sequence[psp->currow + 1] = patseq->sequence[psp->currow];
+  patseq->sequence[psp->currow] = copy;
+
+  psp->set_currow ( psp->currow + 1 );
+  *patseq->metadata.changed = true;
+  return 0;
+}
+
+int PatSeqPanel::insertPat(void *pspanel)
+{
+  fprintf(stderr, "PatSeqPanel::insertPat()\n");
+  PatSeqPanel *psp = (PatSeqPanel *)pspanel;
+  PatternSequencer *patseq = psp->patseq;
+
+  patseq->sequence.insert(patseq->sequence.begin()+psp->currow+1, patseq->sequence[psp->currow]);
+  patseq->num_entries++;
+  psp->set_currow(psp->currow + 1);
+
+  PatternMeta *pm = &patseq->patterns[patseq->sequence[psp->currow]];
+  pm->used++;
+
+  *patseq->metadata.changed = true;
+  return 0;
+}
+
+int PatSeqPanel::zapPat(void *pspanel)
+{
+  fprintf(stderr, "PatSeqPanel::zapPat()\n");
+  PatSeqPanel *psp = (PatSeqPanel *)pspanel;
+  PatternSequencer *patseq = psp->patseq;
+
+  PatternMeta *pm = &patseq->patterns[patseq->sequence[psp->currow]];
+  auto lenBackup = pm->p.len;
+  memset(pm, 0, sizeof(PatternMeta));
+  pm->p.len = lenBackup;
+  pm->used = 1;
+
+  //clear(pspanel);
+}
+
 ////////////////////// START PATTERN EDITOR STUFF ///////////////////////
 
 static int get_unused_pattern_index(PatternSequencer *ps)
 {
   for (int i=0; i < MAX_PATTERNS; i++)
-    if (ps->patterns[i].used == 0)
+  {
+    bool skipPat = false;
+    const PatternMeta *pm = &ps->patterns[i];
+    const Pattern *p = &pm->p;
+
+    if (pm->used)
+      continue;
+
+    for (int t=0; t < MAX_TRACKS; t++)
+    {
+      for (int r=0; r < MAX_PATTERN_LEN; r++)
+      {
+        const PatternRow *row = &p->trackrows[t][r];
+
+        if (!PATROW_EMPTY(row))
+        {
+          skipPat = true;
+          break;
+        }
+      }
+      if (skipPat)
+        break;
+    }
+    if (!skipPat)
       return i;
+  }
   return -1;
 }
 
@@ -900,12 +1108,8 @@ int clone_seq_common(PatSeqPanel *psp)
       unused_index);
 
   up->used += 1;
-
-  if ((psp->currow - psp->rows_scrolled) % psp->VISIBLE_ROWS == (psp->VISIBLE_ROWS - 1))
-    psp->rows_scrolled++;
-
   patseq->num_entries++;
-  psp->currow++;
+  psp->set_currow(psp->currow + 1);
 
   *patseq->metadata.changed = true;
   return 0;
@@ -927,8 +1131,12 @@ int PatSeqPanel::clone(void *pspanel)
 int PatSeqPanel::seq(void *pspanel)
 {
   PatSeqPanel *psp = (PatSeqPanel *)pspanel;
+  PatternSequencer *patseq = psp->patseq;
   fprintf(stderr, "PatSeqPanel::seq()\n");
   clone_seq_common(psp);
+  // Set the new pattern's length to the same as the previous one
+  PatternMeta *pm = &patseq->patterns[patseq->sequence[psp->currow]];
+  pm->p.len = (pm - 1)->p.len; 
   return 0;
 }
 
@@ -961,6 +1169,9 @@ int PatSeqPanel::clear(void *pspanel)
 
   *patseq->metadata.changed = true;
 
+  /* Fixes #36 */
+  ::tracker->main_window.pateditpanel.set_currow(::tracker->main_window.pateditpanel.currow);
+
   return 0;
 }
 
@@ -979,6 +1190,9 @@ int PatSeqPanel::incpat(void *pspanel)
 
   patseq->patterns[patseq->sequence[psp->currow]].used++;
   *patseq->metadata.changed = true;
+
+  /* Fixes #36 */
+  ::tracker->main_window.pateditpanel.set_currow(::tracker->main_window.pateditpanel.currow);
   return 0;
 }
 
@@ -996,47 +1210,73 @@ int PatSeqPanel::decpat(void *pspanel)
 
   patseq->patterns[patseq->sequence[psp->currow]].used++;
   *patseq->metadata.changed = true;
+
+  /* Fixes #36 */
+  ::tracker->main_window.pateditpanel.set_currow(::tracker->main_window.pateditpanel.currow);
+  return 0;
 }
 
-void PatSeqPanel::set_currow(int row)
+void PatSeqPanel::set_currow(int row, bool updateScrolled/*=true*/)
 {
-	assert(row < patseq->num_entries);
+  if (row >= patseq->num_entries)
+    row = patseq->num_entries - 1;
+  else if (row < 0)
+    row = 0;
+
 	currow = row;
-	if (currow >= (rows_scrolled + VISIBLE_ROWS))
-		rows_scrolled = currow - VISIBLE_ROWS + 1;
-	else if (row == 0)
-		rows_scrolled = 0;
+
+  /* If the next pattern's length is shorter than the current row of the pattern
+   * editor panel, then set it to the last row of that pattern */
+  Pattern *p = get_current_pattern(this);
+  PatternEditorPanel &pep = ::tracker->main_window.pateditpanel;
+  if ( pep.currow >= p->len)
+    pep.set_currow(p->len - 1);
+  //else if ( pep.currow < pep.rows_scrolled )
+    pep.set_currow(pep.currow);
+
+  // (when the song is playing, If the user scrolled in the patseqpanel,
+  // the update mechanism won't interfere for 2000 ms
+  if ( updateScrolled && ( !::tracker->rendering() || (SDL_GetTicks() > (lastTimeScrolled + 2000)) ) )
+  {
+    if (currow < rows_scrolled)
+      rows_scrolled = currow;
+    else if (currow >= (rows_scrolled + VISIBLE_ROWS))
+      rows_scrolled = currow - VISIBLE_ROWS + 1;
+    else if (row == 0)
+      rows_scrolled = 0;
+  }
 }
 
 void PatSeqPanel::inc_currow()
 {
-  if (currow >= (patseq->num_entries - 1))
-  {
-    currow = 0;
-    rows_scrolled = 0;
-  }
-  else
-  {
-    if ((currow - rows_scrolled) % VISIBLE_ROWS == (VISIBLE_ROWS - 1))
-      rows_scrolled++;
-
-    currow++;
-  }
+  set_currow(currow + 1);
 }
 
 void PatSeqPanel::dec_currow()
 {
-  if (currow > 0)
-  {
-    if ((currow - rows_scrolled) % VISIBLE_ROWS == 0)
-      rows_scrolled--;
-    currow--;
-  }
-  else
-  {
-    currow = patseq->num_entries - 1;
-    rows_scrolled = patseq->num_entries >= VISIBLE_ROWS ? currow - (VISIBLE_ROWS-1) : 0;
-  }
+  set_currow(currow - 1);
+}
+
+/* these functions query the proper handles on that real data. */
+void PatSeqPanel :: update_patlen()
+{
+	uint8_t *len = &patseq->patterns[patseq->sequence[currow]].p.len;
+	sprintf(patlen_cbuf, "$%03x", *len);
+}
+
+int PatSeqPanel::inc_patlen(void *bsaw)
+{
+	PatSeqPanel *b = (PatSeqPanel *)bsaw;
+	//DEBUGLOG("inc_patlen; ");
+	::tracker->inc_patlen();
+	b->update_patlen();
+}
+
+int PatSeqPanel::dec_patlen(void *bsaw)
+{
+	PatSeqPanel *b = (PatSeqPanel *)bsaw;
+	::tracker->dec_patlen();
+	b->update_patlen();
 }
 
 ///////////////////////////////////////////////////////////////////////
@@ -1375,12 +1615,12 @@ Pattern * get_current_pattern(PatSeqPanel *psp)
   return &psp->patseq->patterns[psp->patseq->sequence[psp->currow]].p;
 }
 
-void PatternEditorPanel::notehelper(int ndex)
+void PatternEditorPanel::notehelper(int ndex, bool absmidi/*=false*/)
 {
   Pattern *pat = get_current_pattern(psp);
   PatternRow *pw = &pat->trackrows[cur_track][currow];
-  int n = NOTE_C0 + ndex + (cur_octave * 12);
-  if (n <= NOTE_C6)
+  int n = NOTE_C0 + ndex + ( absmidi ? 0 : (cur_octave * 12) );
+  if (n <= NOTE_D6)
   {
     if (recording)
     {
@@ -1391,10 +1631,18 @@ void PatternEditorPanel::notehelper(int ndex)
       *psp->patseq->metadata.changed = true;
       //note2ascii(pw->note, guitrackrow[cur_track].note_strings[currow]);
     }
-    else
+    //DEBUGLOG("YOU ARE HERE\n");
+    /* TODO: Play the sample through the API just like in std instrument
+     * window */
+    if (::tracker->instr_render && !::tracker->playback)
     {
-      /* TODO: Play the sample through the API just like in std instrument
-       * window */
+      ::player->spc_emu()->write_port(0, ip->currow);       // instr#
+      ::player->spc_emu()->write_port(2, n - 1);                // note
+      ::player->spc_emu()->write_port(3, cur_track);  // track
+      ::player->spc_emu()->write_port(1, SPCCMD_PLAYINSTRUMENT);  // command
+      while (::player->spc_emu()->read_port(1) != SPCCMD_PLAYINSTRUMENT)
+        SDL_Delay(1);
+      ::player->spc_emu()->write_port(1, SPCCMD_NOP);  // command
     }
   }
 }
@@ -1424,6 +1672,7 @@ void PatternEditorPanel::instrhelper(int n)
     pw->instr |= n & 0x0f;
   }
   *psp->patseq->metadata.changed = true;
+  inc_currow(addval);
   //instr2ascii(pw->note, guitrackrow[cur_track].instr_strings[currow]);
 }
 
@@ -1652,6 +1901,20 @@ int PatternEditorPanel::event_handler(const SDL_Event &ev)
         }
 
       } break;
+    case SDL_USEREVENT:
+    {
+      if (ev.user.code == UserEvents::play_pitch)
+      {
+        uintptr_t tmp = (uintptr_t)ev.user.data1;
+        unsigned char pitch = (unsigned char)tmp;
+        DEBUGLOG("tmp=%d, pitch=%d\n", tmp, pitch);
+        notehelper(pitch - 12, true);
+      }
+      else if (ev.user.code == UserEvents::keyoff)
+      {
+        ::player->spc_write_dsp(dsp_reg::koff, 0xff);
+      }
+    } break;
     default:break;
   }
 }
@@ -1741,9 +2004,46 @@ void PatternEditorPanel::recording_kb(const int scancode, const int mod)
   {
     case SDLK_DELETE:
 		{
-			Pattern *p = get_current_pattern(psp);
-			uint8_t instr = p->trackrows[cur_track][currow].instr;
-			p->trackrows[cur_track][currow] = PatternRow();
+      switch (highlighted_subsection) {
+        case NOTE:
+        {
+          Pattern *p = get_current_pattern(psp);
+          p->trackrows[cur_track][currow] = PatternRow();
+        }
+        break;
+        case INSTR_HI:
+        case INSTR_LO:
+        {
+          Pattern *p = get_current_pattern(psp);
+          p->trackrows[cur_track][currow].instr = 0;
+        }
+        break;
+        case VOL_HI:
+        case VOL_LO:
+        {
+          Pattern *p = get_current_pattern(psp);
+          p->trackrows[cur_track][currow].vol = 0;
+        }
+        break;
+        case FX:
+        {
+          Pattern *p = get_current_pattern(psp);
+          p->trackrows[cur_track][currow].fx = 0;
+          p->trackrows[cur_track][currow].fxparam = 0;
+        }
+        break;
+        case FXPARAM_HI:
+        case FXPARAM_LO:
+        {
+          Pattern *p = get_current_pattern(psp);
+          p->trackrows[cur_track][currow].fx = 0;
+          p->trackrows[cur_track][currow].fxparam = 0;
+        }
+        break;
+        default:break;
+      }
+      // update that the song changed
+      *psp->patseq->metadata.changed = true;
 		}
     break;
     case SDLK_BACKSPACE:
@@ -1752,12 +2052,19 @@ void PatternEditorPanel::recording_kb(const int scancode, const int mod)
           moveback(get_current_pattern(psp), t, currow, ip);
       else moveback(get_current_pattern(psp), cur_track, currow, ip);
       dec_currow();
+      // update that the song changed
+      *psp->patseq->metadata.changed = true;
     break;
     case SDLK_INSERT:
+#ifdef PLATFORM_MACOSX          // On my Macbook Pro with El Capitan, the usual keycode for INSERT
+    case SDLK_KP_ENTER: // Fn + Enter is giving this code, so let's make sure to process it on Mac.
+#endif
       if (MODONLY(mod, KMOD_SHIFT))
         for (int t=0; t < MAX_TRACKS; t++)
           moveforward(get_current_pattern(psp), t, currow);
       else moveforward(get_current_pattern(psp), cur_track, currow);
+      // update that the song changed
+      *psp->patseq->metadata.changed = true;
     break;
     case SDLK_0:
       if (MODONLY(mod, KMOD_ALT))
@@ -1791,12 +2098,40 @@ void PatternEditorPanel::dec_addval()
 
 void PatternEditorPanel::set_currow(int row)
 {
-	assert(row < get_current_pattern(psp)->len);
+  auto patlen = get_current_pattern(psp)->len;
+	if ( ! ( row < patlen ) )
+    row = patlen - 1;
 	currow = row;
-	if (currow >= (rows_scrolled + VISIBLE_ROWS))
-		rows_scrolled = currow - VISIBLE_ROWS + 1;
-	else if (row == 0)
+  DEBUGLOG("currow = %d, rows_scrolled = %d, rs + vr = %d\n", currow, rows_scrolled, rows_scrolled + VISIBLE_ROWS);
+	if (currow == 0)
+    rows_scrolled = 0;
+  else if (currow >= (rows_scrolled + VISIBLE_ROWS))
+  {
+		rows_scrolled = (currow - VISIBLE_ROWS + 1) > 0 ? (currow - VISIBLE_ROWS + 1) : 0;
+    DEBUGLOG("\tset rows_scrolled to %d\n", rows_scrolled);
+  }
+	else if (currow < VISIBLE_ROWS && ( rows_scrolled > currow) )
+  {
+    DEBUGLOG("\tset rows_scrolled to 0\n");
 		rows_scrolled = 0;
+  }
+  else if ( ( rows_scrolled + VISIBLE_ROWS ) <= patlen &&
+    currow < (VISIBLE_ROWS + rows_scrolled) && ( rows_scrolled <= (currow) ) )
+  {
+    DEBUGLOG("\tWon't change rows_scrolled\n");
+  }
+  else if ( ( rows_scrolled + VISIBLE_ROWS ) > patlen )
+  /* the very last row is displayed and could be expressed with a lower scroll value */
+  {
+    DEBUGLOG("\there\n");
+    int subtract = (patlen > VISIBLE_ROWS) ? patlen : VISIBLE_ROWS;
+    rows_scrolled = subtract - VISIBLE_ROWS;
+  }
+  else
+  {
+    DEBUGLOG("\tELSE HIT\n");
+    rows_scrolled = (currow - VISIBLE_ROWS + 1) > 0 ? (currow - VISIBLE_ROWS + 1) : 0;
+  }
 }
 
 void PatternEditorPanel::inc_currow(int howmany/*=1*/, bool wrap/*=true*/)
@@ -1865,14 +2200,14 @@ void PatternEditorPanel::events_kb_universal(const int scancode, const int mod)
   switch(scancode)
   {
     case SDLK_w:
-      if (MODONLY(mod, CMD_CTRL_KEY))
+      if (MODONLY(mod, KMOD_ALT))
         pattern_wrap = !pattern_wrap;
     break;
     case SDLK_PAGEUP:
-      dec_currow(16, false);
+      dec_currow(VISIBLE_ROWS > 16 ? 16 : VISIBLE_ROWS, false);
     break;
     case SDLK_PAGEDOWN:
-      inc_currow(16, false);
+      inc_currow(VISIBLE_ROWS > 16 ? 16 : VISIBLE_ROWS, false);
     break;
     case SDLK_HOME:
       currow = 0;
@@ -2112,13 +2447,15 @@ void PatternEditorPanel::piano_kb(const int scancode, const int mod)
 
 void PatternEditorPanel::one_time_draw(SDL_Surface *screen/*=::render->screen*/)
 {
-  // draw a white border around the current visible rows, but also the max visible as well
-  Utility::DrawRect(&rect, 1);
-
   auto backup = VISIBLE_ROWS;
   set_visible_rows(MAX_VISIBLE_ROWS);
+  // Draw a black inside rect to cover the BG Rect
+  SDL_FillRect(screen, &rect, Colors::transparent);
   Utility::DrawRect(&rect, 1);
+
   set_visible_rows(backup);
+  // draw a white border around the current visible rows, but also the max visible as well
+  Utility::DrawRect(&rect, 1);
 }
 
 void PatternEditorPanel::draw(SDL_Surface *screen/*=::render->screen*/)
@@ -2194,7 +2531,12 @@ void PatternEditorPanel::draw(SDL_Surface *screen/*=::render->screen*/)
     for (int r=0; r < min(VISIBLE_ROWS, (pat->len - rows_scrolled)); r++)
     {
       index_text[r].str = index_strings[rows_scrolled + r];
-      index_text[r].draw(screen,
+      if ( (rows_scrolled + r) % 8 == 0)
+        index_text[r].draw(screen,
+          Colors::yellow,
+          false);
+      else
+        index_text[r].draw(screen,
           Colors::Interface::color[Colors::Interface::Type::text_fg],
           false);
 

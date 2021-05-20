@@ -9,12 +9,47 @@
 #define L_FLAG 0
 #define R_FLAG 1
 
-#define PC_STR "PC: $%04x  "
-#define PC_X MEMORY_VIEW_X+8*12
-#define PC_Y MEMORY_VIEW_Y-10
+
+/*
+
+                     _.-*'"      "`*-._
+                _.-*'                  `*-._
+             .-'                            `-.
+  /`-.    .-'                  _.              `-.
+ :    `..'                  .-'_ .                `.
+ |    .'                 .-'_.' \ .                 \
+ |   /                 .' .*     ;               .-'"
+ :   L                    `.     | ;          .-'
+  \.' `*.          .-*"*-.  `.   ; |        .'
+  /      \        '       `.  `-'  ;      .'
+ : .'"`.  .       .-*'`*-.  \     .      (_
+ |              .'        \  .             `*-.
+ |.     .      /           ;                   `-.
+ :    db      '       d$b  |                      `-.
+ .   :PT;.   '       :P"T; :                         `.
+ :   :bd;   '        :b_d; :                           \
+ |   :$$; `'         :$$$; |                            \
+ |    TP              T$P  '                             ;
+ :                        /.-*'"`.                       |
+.sdP^T$bs.               /'       \
+$$$._.$$$$b.--._      _.'   .--.   ;
+`*$$$$$$P*'     `*--*'     '  / \  :
+   \                        .'   ; ;   [bug]
+    `.                  _.-'    ' /
+      `*-.                      .'
+          `*-._            _.-*'
+               `*=--..--=*'
+
+
+Sonic invaded the SNES Tracker Code!!
+Shoutz to BigMerl, Ravancloak, and Rowan from Twitch stream
+9/28/2020 <3 Much Love <3
+
+*/
 
 Main_Window::Main_Window(int &argc, char **argv, Tracker *tracker) :
-  song_title_label("Song Title:"),
+  song_label("Song"),
+  song_title_label("Title:"),
   song_title(SongSettings::SONGTITLE_SIZE, tracker->song.settings.song_title_str, sizeof(tracker->song.settings.song_title_str)),
   tracker(tracker),
 	samplepanel(tracker->song.samples),
@@ -23,11 +58,21 @@ Main_Window::Main_Window(int &argc, char **argv, Tracker *tracker) :
   pateditpanel(&patseqpanel, &instrpanel),
   bsawidget(tracker, &pateditpanel),
   instreditor(&instrpanel),
-  instreditor_btn("Inst. Ed.", toggle_instreditor, this),
-	sample_editor_btn("Samp. Ed.", toggle_sample_editor, this),
-  songsettings_btn("Sng Sett.", toggle_songsettings, this)
+  instreditor_btn("Instrument Editor", toggle_instreditor, this),
+	sample_editor_btn("Sample Editor", toggle_sample_editor, this),
+  songsettings_btn("Song Settings", toggle_songsettings, this)
 {
   int x,y,xx,yy;
+  /* Address EASY Layout improvement from issue #142
+   * Applies to area, Instrument Panel, and Sample Panel */
+
+  // BG RECT internal padding
+  // TODO: rename to eg. INT_PAD_X
+  constexpr int PAD_X = 10;
+  constexpr int PAD_Y = 10;
+  // EXTERNAL ELEMENT PADDING
+  constexpr int EXT_PAD_X = 12;
+
   song_title.dblclick = false; // do not require dblclick to edit. single
 
   if (::render->screen == NULL)
@@ -36,44 +81,103 @@ Main_Window::Main_Window(int &argc, char **argv, Tracker *tracker) :
     exit(1);
   }
   
-  x = xx = 10; //(SCREEN_WIDTH / 2) - ((strlen("Song Title") * CHAR_WIDTH) / 2 );
+  x = xx = EXT_PAD_X + PAD_X; //(SCREEN_WIDTH / 2) - ((strlen("Song Title") * CHAR_WIDTH) / 2 );
   y = yy = 50;
 
   patseqpanel.set_coords(x, y);
+  // Pattern Sequencer BG Rect
+  patseq_rect_bg.x = patseqpanel.rect.x - PAD_X;
+  patseq_rect_bg.y = patseqpanel.rect.y - PAD_Y;
+  patseq_rect_bg.w = patseqpanel.rect.w + (PAD_X * 2);
+  patseq_rect_bg.h = patseqpanel.rect.h + (PAD_Y * 2); // added vertical padding for instrment editor button
 
-	plwidget.set_coords(x, y + patseqpanel.rect.h + 20);
+  // Update x coordinate for the Song panel
+	x = patseq_rect_bg.x + patseq_rect_bg.w + PAD_X + EXT_PAD_X;
 
-	x = 150;
+  song_label.rect.x = x;
+  song_label.rect.y = y;
 
+  y += (CHAR_HEIGHT * 2); // + 5;
   song_title_label.rect.x = x;
   song_title_label.rect.y = y;
   
-  y += CHAR_HEIGHT + 2;
-  song_title.rect.x = 150;
+  y += CHAR_HEIGHT + 5;
+  song_title.rect.x = x;
   song_title.rect.y = y;
 
-  bsawidget.set_coords(150, y + song_title.rect.h + CHAR_HEIGHT);
+  bsawidget.set_coords(x, y + song_title.rect.h + (CHAR_HEIGHT + (CHAR_HEIGHT / 2) + (CHAR_HEIGHT / 4)));
 
-  instreditor_btn.rect.x = 150;
-  instreditor_btn.rect.y = bsawidget.rect.y + bsawidget.rect.h + 4;
-	// sample editor button directly beneath instr editor button
-	sample_editor_btn.rect.x = 150;
-	sample_editor_btn.rect.y = instreditor_btn.rect.y + instreditor_btn.rect.h + 5;
+///
+// WHAT WE WANT:
+// To get the Song Panel BG Rect defined here so that we can position the
+// next element accordingly
+  /* This all stems from how the Song Settings button's Y coordinate is
+   * depending on the Instrument panel's Instrument editor button to be
+   * positioned first */
 
-  // song settings button directly beneath sample editor button
-  songsettings_btn.rect.x = 150;
-  songsettings_btn.rect.y = sample_editor_btn.rect.y + sample_editor_btn.rect.h + 5;
+// !HACK! Call the instrpanel.set_coords() with the proper Y value to get
+// the proper instreditor_btn Y position, so that we can establish the
+// Song Panel fully!!! \o/ Then, we actually positioning the instrument
+// panel FOR REAL. Call it again, with the proper X coordinate in place.
+  instrpanel.set_coords(x, yy); // x = dont care
+  // 
+  instreditor_btn.rect.y = instrpanel.rect.y + instrpanel.rect.h + (CHAR_HEIGHT * 1);
 
-  x += song_title.rect.w + (CHAR_WIDTH * 2);
+  
+// Align song settings button vertically with the instrument editor and
+// sample editor buttons
+  songsettings_btn.rect.x = bsawidget.rect.x;
+  songsettings_btn.rect.y = instreditor_btn.rect.y; // OMG. WE FINALLY GOT THE PROPER Y COORDINATE \o/
+
+  // Song Area BG Rect Portion
+  //
+  song_rect_bg.x = song_label.rect.x - PAD_X;
+  song_rect_bg.y = song_label.rect.y - PAD_Y;
+  song_rect_bg.w = song_title.rect.w + (PAD_X * 2);
+  song_rect_bg.h = ( (songsettings_btn.rect.y + songsettings_btn.rect.h) - song_rect_bg.y ) + (PAD_Y * 1);
+
+/////////// COORDINATES FOR INSTRUMENT PANEL
+
+  x = song_rect_bg.x + song_rect_bg.w + PAD_X + EXT_PAD_X;
+
   instrpanel.set_coords(x, yy);
-  x = instrpanel.rect.x + instrpanel.rect.w + (CHAR_WIDTH);
-  samplepanel.set_coords(x, yy);
+  // #142, move instrument editor button to be with instrument panel
+  instreditor_btn.rect.x = instrpanel.loadbtn.rect.x; // Use same indentation as Load Button
+  instreditor_btn.rect.y = instrpanel.rect.y + instrpanel.rect.h + (CHAR_HEIGHT * 1);
 
-  y = y + instrpanel.rect.h + CHAR_HEIGHT;
+  // Enlargen rect area for the background color area.
+  instr_rect_bg.x = instrpanel.rect.x - PAD_X;
+  instr_rect_bg.y = instrpanel.title.rect.y - PAD_Y;
+  instr_rect_bg.w = instrpanel.rect.w + (PAD_X * 2);
+  instr_rect_bg.h = ( ( instreditor_btn.rect.y + instreditor_btn.rect.h ) - instr_rect_bg.y) + PAD_Y;
+  // (in Main_Window)
+
+/////////// COORDINATES FOR SAMPLE PANEL
+  x = instr_rect_bg.x + instr_rect_bg.w + PAD_X + EXT_PAD_X;
+  samplepanel.set_coords(x, yy);
+  // sample editor button directly beneath sample panel
+  sample_editor_btn.rect.x = samplepanel.loadbtn.rect.x;
+  sample_editor_btn.rect.y = samplepanel.rect.y + samplepanel.rect.h + (CHAR_HEIGHT);
+
+  // Enlargen rect area for the background color area.
+  sample_rect_bg.x = samplepanel.rect.x - PAD_X;
+  sample_rect_bg.y = samplepanel.title.rect.y - PAD_Y;
+  sample_rect_bg.w = samplepanel.rect.w + (PAD_X * 2);
+  sample_rect_bg.h = ( ( sample_editor_btn.rect.y + sample_editor_btn.rect.h ) - sample_rect_bg.y ) + PAD_Y;
+
+/////// COORDINATES FOR PATTERN EDITOR PANEL
+
+  y += instrpanel.rect.h + (CHAR_HEIGHT / 2);
   pateditpanel.set_coords(xx, y);
   pateditpanel.set_visible_rows(0x08); // called to update rect.h
   y = pateditpanel.rect.y + pateditpanel.rect.h + (CHAR_HEIGHT*2);
   pateditpanel.set_visible_rows(PatternEditorPanel::MAX_VISIBLE_ROWS); // called to update rect.h
+
+  // Enlargen rect area for the background color area.
+  patedit_rect_bg.x = pateditpanel.rect.x - PAD_X;
+  patedit_rect_bg.y = pateditpanel.rect.y - PAD_Y;
+  patedit_rect_bg.w = pateditpanel.rect.w + (PAD_X * 2);
+  patedit_rect_bg.h = ( ( pateditpanel.rect.y + pateditpanel.rect.h ) - patedit_rect_bg.y ) + PAD_Y;
 
   // These panels appear at the same coords when activated
 	instreditor.set_coords(xx, y);
@@ -216,14 +320,41 @@ void Main_Window::draw_memory_outline()
 
 void Main_Window::one_time_draw()
 {
-  // draw one-time stuff
-  //SDL_FillRect(::render->screen, NULL, Colors::Interface::color[Colors::Interface::Type::bg]);
-  song_title_label.draw(::render->screen);
+  // Draw Pattern Sequencer BG Rect
+  SDL_FillRect(::render->screen, &patseq_rect_bg, Colors::Interface::color[Colors::Interface::Type::patseqpanelBG]);
 
+
+  // draw Song BG Rect
+  SDL_FillRect(::render->screen, &song_rect_bg, Colors::Interface::color[Colors::Interface::Type::songpanelBG]);
+  // "SONG"
+  song_label.draw(::render->screen, Colors::Interface::color[Colors::Interface::Type::text_fg],
+      true, false, false, Colors::Interface::color[Colors::Interface::Type::songpanelBG]);
+  // "Title:"
+  song_title_label.draw(::render->screen, Colors::Interface::color[Colors::Interface::Type::text_fg],
+               true, false, false, Colors::Interface::color[Colors::Interface::Type::songpanelBG]);
+
+  // Instrument Panel
+  // Draw the background rect
+  SDL_FillRect(::render->screen, &instr_rect_bg, Colors::Interface::color[Colors::Interface::Type::instrpanelBG]);
   instrpanel.one_time_draw();
+  // Sample Panel
+  // Draw the background rect
+  SDL_FillRect(::render->screen, &sample_rect_bg, Colors::Interface::color[Colors::Interface::Type::samplepanelBG]);
   samplepanel.one_time_draw();
+
   patseqpanel.one_time_draw();
+
+  // Pattern Editor Panel
+  SDL_FillRect(::render->screen, &patedit_rect_bg, Colors::Interface::color[Colors::Interface::Type::patseqpanelBG]);
   pateditpanel.one_time_draw();
+
+  ////// Draw a Rect to bridge the Patseq_rect_bg with the patedit_rect_bg
+  /*SDL_Rect bridge;
+  bridge.x = patseq_rect_bg.x;
+  bridge.y = patseq_rect_bg.y + patseq_rect_bg.h; // start where patseq rect ends, vertically
+  bridge.w = patseq_rect_bg.w;                    // same width at patseq rect
+  bridge.h = patedit_rect_bg.y - bridge.y + 1;
+  SDL_FillRect(::render->screen, &bridge, Colors::Interface::color[Colors::Interface::Type::patseqpanelBG]);*/
 }
 
 void Main_Window::draw()
@@ -236,15 +367,23 @@ void Main_Window::draw()
   // base height
   i = 32 + SCREEN_Y_OFFSET;  
   //fprintf(stderr, "HERE!\n");
-  song_title.draw(Colors::Interface::color[Colors::Interface::Type::text_fg]);
-	bsawidget.draw(::render->screen);
-  instreditor_btn.draw(::render->screen);
-	sample_editor_btn.draw(::render->screen);
+  song_title.draw();
+	bsawidget.draw(::render->screen, Colors::Interface::color[Colors::Interface::Type::songpanelBG]);
   songsettings_btn.draw(::render->screen);
+
+  // BEWARE: Must draw instreditor_btn after the instrpanel
+  // TODO (Maybe): Put instreditor_btn into Instrument_Panel class with
+  // handle to Main_Window
   instrpanel.draw(::render->screen);
+  instreditor_btn.draw(::render->screen);
+
+  // BEWARE: Must draw sample_editor_btn after the samplepanel
+  // TODO (Maybe): Put sample_editor_btn into Sample_Panel class with
+  // handle to Main_Window
   samplepanel.draw(::render->screen);
+  sample_editor_btn.draw(::render->screen);
+
   patseqpanel.draw(::render->screen);
-	plwidget.draw(::render->screen);
   pateditpanel.draw(::render->screen);
   if (active_aux_panel & (1 << INSTREDITOR))
     instreditor.draw(::render->screen);
@@ -283,7 +422,6 @@ int Main_Window::receive_event(SDL_Event &ev)
   instreditor_btn.check_event(ev);
 	sample_editor_btn.check_event(ev);
   songsettings_btn.check_event(ev);
-	plwidget.handle_event(ev);
   bsawidget.handle_event(ev);
   instrpanel.event_handler(ev);
   samplepanel.event_handler(ev);

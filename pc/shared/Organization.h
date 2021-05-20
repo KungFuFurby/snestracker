@@ -3,8 +3,8 @@
 #define COMPANY_NAME "Black Hole Studios"
 #define APP_NAME "SNES Tracker"
 #define APP_VER_MAJOR 0
-#define APP_VER_MINOR 1
-#define APP_VER_MICRO 0
+#define APP_VER_MINOR 2
+#define APP_VER_MICRO 2
 // concats the 3 version values into a string
 #define APP_VER_STRING(maj, min, mic) #maj "." #min "." #mic
 // allows calling the above macro with macro arguments
@@ -16,5 +16,9 @@
 
 /* use HTTP so it can be easily forwarded in the future. Site will automatically
 convert it to HTTPS */
-#define PATREON_URL "http://patreon.bazz1.com"
-#define MERCH_URL "http://stswag.bazz1.com"
+#define WIKI_URL "https://wiki.snestracker.com"
+#define PATREON_URL "http://patreon.snestracker.com"
+#define MERCH_URL "http://shop.snestracker.com"
+#define STREAM_URL "https://stream.snestracker.com"
+#define SOUNDCLOUD_URL "https://soundcloud.snestracker.com"
+#define TWITTER_URL "https://twitter.snestracker.com"

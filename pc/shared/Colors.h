@@ -31,6 +31,12 @@ struct Colors
       vol,
       fx,
       fxparam,
+
+      //v0.2.1
+      patseqpanelBG,
+      songpanelBG,
+      instrpanelBG,
+      samplepanelBG,
       SIZEOF
     };
     static Uint32 color[Type::SIZEOF];
